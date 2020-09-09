@@ -53,22 +53,39 @@ public class CommunicationService {
         }
     }
 
-    public void membershipAdditions() throws IOException, ClassNotFoundException {
+    public void membershipAdditions(Member clusterMember) throws IOException, ClassNotFoundException {
 
-        ServerSocket serverSocket = new ServerSocket( self.getDiscoveryPort());
-        while (true) {
+       // ServerSocket serverSocket = new ServerSocket(self.getDiscoveryPort());
+//        while (true) {
 //            Socket socket = serverSocket.accept();
+
+        System.out.println("Registering to cluster");
+
+        if (clusterMember == null) {
             System.out.println("ready to receive members");
             ObjectInputStream memRequest = new ObjectInputStream(socket.accept().getInputStream());
             ObjectOutputStream memResponse = new ObjectOutputStream(socket.accept().getOutputStream());
             Member member = (Member) memRequest.readObject();
             self.getPeers().putIfAbsent(member.getId(), member);
             memResponse.writeObject(self.getPeers().values());
+            notifyMemberAddition(member);
+        } else {
+            System.out.println("Registering to cluster");
+            Socket clSock = new Socket("localhost", clusterMember.getDiscoveryPort());
+            ObjectOutputStream memResponse = new ObjectOutputStream(clSock.getOutputStream());
+            memResponse.writeObject(self);
+            ObjectInputStream memRequest = new ObjectInputStream(socket.accept().getInputStream());
+            Member member = (Member) memRequest.readObject();
+            self.getPeers().putIfAbsent(member.getId(), member);
+            memResponse.writeObject(self.getPeers().values());
+            notifyMemberAddition(member);
         }
+        System.out.println();
+//        }
     }
 
     private void notifyMemberAddition(Member newMember) throws IOException {
-        for (Member member: self.getPeers().values()) {
+        for (Member member : self.getPeers().values()) {
             if (self.getId() != member.getId()) {
                 ServerSocket serverSocket = new ServerSocket(self.getDiscoveryPort());
                 System.out.println("ready to receive members");
