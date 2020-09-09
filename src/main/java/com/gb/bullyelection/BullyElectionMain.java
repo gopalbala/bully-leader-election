@@ -16,20 +16,24 @@ public class BullyElectionMain {
         Member member = new Member(new InetSocketAddress("127.0.0.1", 19000),
                 3,19001,19002,19003);
 
-        Member member1 = new Member(new InetSocketAddress("127.0.0.1", 19100),
-                3,19101,19102,19103);
+//        CommunicationService communicationService =
+//                new CommunicationService(member,19003);
 
-        CommunicationService communicationService =
-                new CommunicationService(member1,19103);
+        Member member1 = new Member(new InetSocketAddress("127.0.0.1", 19300),
+                213,19301,19302,19303);
+
+        CommunicationService communicationService1 =
+                new CommunicationService(member1,19303);
 
         Thread thread = new Thread(new Runnable() {
 
             @Override
             public void run() {
                 try {
-                    communicationService.membershipAdditions(member);
+                    communicationService1.membershipAdditions(member);
+//                    communicationService.membershipAdditions(null);
                 } catch (IOException e) {
-                    e.printStackTrace();
+                   // e.printStackTrace();
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
                 }
