@@ -54,46 +54,28 @@ public class CommunicationService {
     }
 
     public void membershipAdditions(Member clusterMember) throws IOException, ClassNotFoundException {
-
-        // ServerSocket serverSocket = new ServerSocket(self.getDiscoveryPort());
-//        while (true) {
-//            Socket socket = serverSocket.accept();
-
         System.out.println("Registering to cluster");
-
         if (clusterMember == null) {
             System.out.println("ready to receive members");
-
             self.getPeers().putIfAbsent(self.getId(), self);
             while (true) {
                 Socket socket = serverSocket.accept();
                 ObjectInputStream memRequest = new
                         ObjectInputStream(socket.getInputStream());
                 Member member = (Member) memRequest.readObject();
-//                memRequest.close();
                 System.out.println("Discovered new member " + member.getId());
                 if (member.getId() != self.getId()) {
                     self.getPeers().putIfAbsent(member.getId(), member);
-//                    ObjectOutputStream memResponse = new
-//                            ObjectOutputStream(socket.getOutputStream());
-//                    memResponse.writeObject(self);
-//                    memResponse.close();
                     for (Member m : self.getPeers().values()) {
-//                        if (m.getId()!=member.getId()) {
                         try {
-//                            Socket skt = new Socket("127.0.0.1", self.getDiscoveryPort());
                             ObjectOutputStream memResponse = new
                                     ObjectOutputStream(socket.getOutputStream());
                             memResponse.writeObject(m);
                         } catch (Exception e) {
                             e.printStackTrace();
                         }
-                        //memResponse.writeObject(m);
                     }
-
-//                    }
                 }
-                //notifyMemberAddition(member);
             }
         } else {
             System.out.println("Registering to cluster");
@@ -109,15 +91,7 @@ public class CommunicationService {
                     e.printStackTrace();
                 }
             }).start();
-//            while (true) {
-//                Socket socket = serverSocket.accept();
-
-                //memResponse.writeObject(self.getPeers().values());
-                //;
-//            }
         }
-        // System.out.println();
-//        }
     }
 
     private void receiver(Socket socket) throws IOException, ClassNotFoundException {
@@ -130,18 +104,4 @@ public class CommunicationService {
         }
     }
 
-    private void selfReceiver() {
-
-    }
-
-//    private void notifyMemberAddition(Member newMember) throws IOException {
-//        for (Member member : self.getPeers().values()) {
-//            if (self.getId() != member.getId()) {
-//                Socket socket = serverSocket.accept();
-//                System.out.println("ready to receive members");
-//                ObjectInputStream memRequest = new ObjectInputStream(this.serverSocket.accept().getInputStream());
-//                ObjectOutputStream memResponse = new ObjectOutputStream(this.serverSocket.accept().getOutputStream());
-//            }
-//        }
-//    }
 }
