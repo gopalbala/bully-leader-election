@@ -1,23 +1,21 @@
 package com.gb.bullyelection;
 
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
-import java.io.*;
-import java.net.DatagramPacket;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.*;
 import java.util.ArrayList;
 import java.util.List;
 
 @Getter
-public class CommunicationService {
+public class CommunicationService implements  NodeUpdater{
 
     private Member self;
     private ServerSocket serverSocket;
-//    private byte[] receivedBuffer = new byte[1024];
-//    private DatagramPacket receivePacket =
-//            new DatagramPacket(receivedBuffer, receivedBuffer.length);
 
     public CommunicationService(Member member, int portToListen) throws IOException {
         try {
@@ -54,17 +52,20 @@ public class CommunicationService {
     }
 
     public void membershipAdditions(Member clusterMember) throws IOException, ClassNotFoundException {
-        System.out.println("Registering to cluster");
+        //System.out.println("Registering to cluster");
         if (clusterMember == null) {
-            System.out.println("ready to receive members");
+            System.out.println("ready to receive members for " + self.getId());
             self.getPeers().putIfAbsent(self.getId(), self);
             while (true) {
                 Socket socket = serverSocket.accept();
                 ObjectInputStream memRequest = new
                         ObjectInputStream(socket.getInputStream());
                 Member member = (Member) memRequest.readObject();
-                System.out.println("Discovered new member " + member.getId());
+                System.out.println("here");
                 if (member.getId() != self.getId()) {
+                    if (!self.getPeers().containsKey(member.getId()))
+                        System.out.println("Discovered new member " + member.getId());
+
                     self.getPeers().putIfAbsent(member.getId(), member);
                     for (Member m : self.getPeers().values()) {
                         try {
@@ -75,11 +76,13 @@ public class CommunicationService {
                             e.printStackTrace();
                         }
                     }
+                } else {
+                    System.out.println(member.getId());
                 }
             }
         } else {
             System.out.println("Registering to cluster");
-            Socket clSock = new Socket("127.0.0.1", clusterMember.getDiscoveryPort());
+            Socket clSock = new Socket(clusterMember.getHost(), clusterMember.getDiscoveryPort());
             ObjectOutputStream memResponse = new ObjectOutputStream(clSock.getOutputStream());
             memResponse.writeObject(self);
             new Thread(() -> {
@@ -91,7 +94,47 @@ public class CommunicationService {
                     e.printStackTrace();
                 }
             }).start();
+
+
+
         }
+    }
+
+    @Override
+    public void nodeAdded(Member member) throws IOException {
+        DatagramSocket datagramSocket = null;
+        byte[] receivedBuffer = new byte[1024];
+        DatagramPacket receivePacket =
+                new DatagramPacket(receivedBuffer, receivedBuffer.length);
+        try {
+            datagramSocket = new DatagramSocket(member.getPort());
+        } catch (SocketException e) {
+            System.out.println("Could not create socket connection");
+            e.printStackTrace();
+        }
+
+        for (Member m: member.getPeers().values()) {
+            InetSocketAddress inetSocketAddress = new InetSocketAddress(m.getHost(), m.getPort());
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(baos);
+            oos.writeObject(m);
+            oos.flush();
+            byte[] buffer= baos.toByteArray();
+            DatagramPacket packet = new DatagramPacket
+                    (buffer, buffer.length, inetSocketAddress.getAddress(), m.getPort());
+            try {
+                datagramSocket.send(packet);
+            } catch (IOException e) {
+                System.out.println("Fatal error trying to send: "
+                        + packet + " to [" + m.getHost() +":" + m.getPort() + "]");
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public void nodeRemoved(Member member) {
+
     }
 
     private void receiver(Socket socket) throws IOException, ClassNotFoundException {
@@ -99,9 +142,18 @@ public class CommunicationService {
             ObjectInputStream memRequest = new ObjectInputStream(socket.getInputStream());
             Member member = (Member) memRequest.readObject();
             System.out.println("Discovered new member " + member.getId());
-            if (member.getId() != self.getId())
+            if (member.getId() != self.getId()) {
                 self.getPeers().putIfAbsent(member.getId(), member);
+                new Thread(() -> {
+                    try {
+                        this.nodeAdded(member);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }).start();
+            }
         }
     }
+
 
 }
