@@ -3,16 +3,13 @@ package com.gb.bullyelection;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
 import java.util.List;
 
 @Getter
-public class CommunicationService implements  NodeUpdater{
+public class CommunicationService implements NodeUpdater {
 
     private Member self;
     private ServerSocket serverSocket;
@@ -94,9 +91,6 @@ public class CommunicationService implements  NodeUpdater{
                     e.printStackTrace();
                 }
             }).start();
-
-
-
         }
     }
 
@@ -113,20 +107,20 @@ public class CommunicationService implements  NodeUpdater{
             e.printStackTrace();
         }
 
-        for (Member m: member.getPeers().values()) {
+        for (Member m : member.getPeers().values()) {
             InetSocketAddress inetSocketAddress = new InetSocketAddress(m.getHost(), m.getPort());
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ObjectOutputStream oos = new ObjectOutputStream(baos);
             oos.writeObject(m);
             oos.flush();
-            byte[] buffer= baos.toByteArray();
+            byte[] buffer = baos.toByteArray();
             DatagramPacket packet = new DatagramPacket
                     (buffer, buffer.length, inetSocketAddress.getAddress(), m.getPort());
             try {
                 datagramSocket.send(packet);
             } catch (IOException e) {
                 System.out.println("Fatal error trying to send: "
-                        + packet + " to [" + m.getHost() +":" + m.getPort() + "]");
+                        + packet + " to [" + m.getHost() + ":" + m.getPort() + "]");
                 e.printStackTrace();
             }
         }
@@ -135,6 +129,39 @@ public class CommunicationService implements  NodeUpdater{
     @Override
     public void nodeRemoved(Member member) {
 
+    }
+
+    public void receiveNodeAddedMessage() {
+        try {
+            DatagramSocket datagramSocket = null;
+            byte[] receivedBuffer = new byte[1024];
+            DatagramPacket receivePacket =
+                    new DatagramPacket(receivedBuffer, receivedBuffer.length);
+            try {
+                datagramSocket = new DatagramSocket(self.getPort());
+            } catch (SocketException e) {
+                System.out.println("Could not create socket connection");
+                e.printStackTrace();
+            }
+
+            datagramSocket.receive(receivePacket);
+            ObjectInputStream objectInputStream =
+                    new ObjectInputStream(
+                            new ByteArrayInputStream(receivePacket.getData()));
+            Member member = null;
+            try {
+                member = (Member) objectInputStream.readObject();
+                System.out.println("Received Member message from [" + member.getHost()
+                        + ":" + member.getPort() + "]");
+                self.getPeers().putIfAbsent(member.getId(), member);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            } finally {
+                objectInputStream.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void receiver(Socket socket) throws IOException, ClassNotFoundException {
