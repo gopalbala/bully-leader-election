@@ -1,7 +1,6 @@
 package com.gb.bullyelection;
 
 import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
 
 import java.io.*;
 import java.net.*;
@@ -12,16 +11,22 @@ import java.util.List;
 public class CommunicationService implements NodeUpdater {
 
     private Member self;
-    private ServerSocket serverSocket;
+    private DatagramSocket datagramSocket;
+    byte[] receivedBuffer = new byte[2048];
+    DatagramPacket receivePacket;
 
-    public CommunicationService(Member member, int portToListen) throws IOException {
+    public CommunicationService(Member member) throws IOException, ClassNotFoundException {
+        self = member;
         try {
-            this.self = member;
-            serverSocket = new ServerSocket(portToListen);
+            InetAddress address = InetAddress.getByName(self.getHost());
+            datagramSocket = new DatagramSocket(member.getDiscoveryPort());
         } catch (SocketException e) {
             System.out.println("Could not create socket connection");
             e.printStackTrace();
         }
+        receivePacket =
+                new DatagramPacket(receivedBuffer, receivedBuffer.length);
+        this.receiver();
     }
 
     public MemberResponse receiveElectionMessage() {
@@ -50,80 +55,20 @@ public class CommunicationService implements NodeUpdater {
 
     public void membershipAdditions(Member clusterMember) throws IOException, ClassNotFoundException {
         //System.out.println("Registering to cluster");
+        self.getPeers().putIfAbsent(self.getId(), self);
         if (clusterMember == null) {
             System.out.println("ready to receive members for " + self.getId());
-            self.getPeers().putIfAbsent(self.getId(), self);
-            while (true) {
-                Socket socket = serverSocket.accept();
-                ObjectInputStream memRequest = new
-                        ObjectInputStream(socket.getInputStream());
-                Member member = (Member) memRequest.readObject();
-                System.out.println("here");
-                if (member.getId() != self.getId()) {
-                    if (!self.getPeers().containsKey(member.getId()))
-                        System.out.println("Discovered new member " + member.getId());
-
-                    self.getPeers().putIfAbsent(member.getId(), member);
-                    for (Member m : self.getPeers().values()) {
-                        try {
-                            ObjectOutputStream memResponse = new
-                                    ObjectOutputStream(socket.getOutputStream());
-                            memResponse.writeObject(m);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                } else {
-                    System.out.println(member.getId());
-                }
-            }
         } else {
-            System.out.println("Registering to cluster");
-            Socket clSock = new Socket(clusterMember.getHost(), clusterMember.getDiscoveryPort());
-            ObjectOutputStream memResponse = new ObjectOutputStream(clSock.getOutputStream());
-            memResponse.writeObject(self);
-            new Thread(() -> {
-                try {
-                    this.receiver(clSock);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
-                }
-            }).start();
+            System.out.println("Registering to cluster " + clusterMember.getDataPort());
+            self.getPeers().putIfAbsent(clusterMember.getId(), clusterMember);
         }
+        this.receiver();
+        send();
     }
 
     @Override
     public void nodeAdded(Member member) throws IOException {
-        DatagramSocket datagramSocket = null;
-        byte[] receivedBuffer = new byte[1024];
-        DatagramPacket receivePacket =
-                new DatagramPacket(receivedBuffer, receivedBuffer.length);
-        try {
-            datagramSocket = new DatagramSocket(member.getPort());
-        } catch (SocketException e) {
-            System.out.println("Could not create socket connection");
-            e.printStackTrace();
-        }
 
-        for (Member m : member.getPeers().values()) {
-            InetSocketAddress inetSocketAddress = new InetSocketAddress(m.getHost(), m.getPort());
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(baos);
-            oos.writeObject(m);
-            oos.flush();
-            byte[] buffer = baos.toByteArray();
-            DatagramPacket packet = new DatagramPacket
-                    (buffer, buffer.length, inetSocketAddress.getAddress(), m.getPort());
-            try {
-                datagramSocket.send(packet);
-            } catch (IOException e) {
-                System.out.println("Fatal error trying to send: "
-                        + packet + " to [" + m.getHost() + ":" + m.getPort() + "]");
-                e.printStackTrace();
-            }
-        }
     }
 
     @Override
@@ -132,55 +77,88 @@ public class CommunicationService implements NodeUpdater {
     }
 
     public void receiveNodeAddedMessage() {
-        try {
-            DatagramSocket datagramSocket = null;
-            byte[] receivedBuffer = new byte[1024];
-            DatagramPacket receivePacket =
-                    new DatagramPacket(receivedBuffer, receivedBuffer.length);
+        System.out.println("Receiver started");
+        {
+            System.out.println("starting........");
+
             try {
-                datagramSocket = new DatagramSocket(self.getPort());
-            } catch (SocketException e) {
-                System.out.println("Could not create socket connection");
+                datagramSocket.receive(receivePacket);
+                ObjectInputStream objectInputStream =
+                        new ObjectInputStream(
+                                new ByteArrayInputStream(receivePacket.getData()));
+                System.out.println("received");
+                Member member = null;
+                try {
+                    member = (Member) objectInputStream.readObject();
+                    System.out.println("Received Member message from [" + member.getHost()
+                            + ":" + member.getDiscoveryPort() + "]");
+                    self.getPeers().putIfAbsent(member.getId(), member);
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                } finally {
+                    for (Member m : member.getPeers().values()) {
+                        self.getPeers().putIfAbsent(m.getId(), m);
+                    }
+                    for (Member m : self.getPeers().values()) {
+                        System.out.println("I have knowledge about peer [" + m.getHost()
+                                + ":" + m.getDiscoveryPort() + "]");
+                    }
+                    objectInputStream.close();
+                }
+            } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+    }
 
-            datagramSocket.receive(receivePacket);
-            ObjectInputStream objectInputStream =
-                    new ObjectInputStream(
-                            new ByteArrayInputStream(receivePacket.getData()));
-            Member member = null;
+    private void send(Member m) {
+        try {
+            InetSocketAddress inetSocketAddress =
+                    new InetSocketAddress(m.getHost(), m.getDiscoveryPort());
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+            objectOutputStream.writeObject(self);
+            objectOutputStream.flush();
+            byte[] buffer = byteArrayOutputStream.toByteArray();
+            DatagramPacket packet = new DatagramPacket
+                    (buffer, buffer.length, inetSocketAddress.getAddress(), m.getDiscoveryPort());
             try {
-                member = (Member) objectInputStream.readObject();
-                System.out.println("Received Member message from [" + member.getHost()
-                        + ":" + member.getPort() + "]");
-                self.getPeers().putIfAbsent(member.getId(), member);
-            } catch (ClassNotFoundException e) {
+                datagramSocket.send(packet);
+                System.out.println("Sent info to member "
+                        + m.getHost() + ":" + m.getDiscoveryPort()
+                );
+            } catch (IOException e) {
+                System.out.println("Fatal error trying to send: "
+                        + packet + " to [" + m.getHost() + ":" + m.getPort() + "]");
                 e.printStackTrace();
-            } finally {
-                objectInputStream.close();
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
+
     }
 
-    private void receiver(Socket socket) throws IOException, ClassNotFoundException {
+    private void send() {
         while (true) {
-            ObjectInputStream memRequest = new ObjectInputStream(socket.getInputStream());
-            Member member = (Member) memRequest.readObject();
-            System.out.println("Discovered new member " + member.getId());
-            if (member.getId() != self.getId()) {
-                self.getPeers().putIfAbsent(member.getId(), member);
-                new Thread(() -> {
-                    try {
-                        this.nodeAdded(member);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }).start();
+            try {
+                Thread.sleep(10000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            for (Member m : self.getPeers().values()) {
+                System.out.println("Sending message to ["
+                        + m.getHost() + ":" + m.getDiscoveryPort() + "]");
+                send(m);
             }
         }
     }
 
-
+    private void receiver() {
+        new Thread(() -> {
+            {
+                while (true)
+                    receiveNodeAddedMessage();
+            }
+        }).start();
+    }
 }
