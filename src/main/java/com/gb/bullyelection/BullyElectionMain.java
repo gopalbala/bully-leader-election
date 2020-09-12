@@ -1,9 +1,6 @@
 package com.gb.bullyelection;
 
-import lombok.SneakyThrows;
-
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.time.Duration;
 
 public class BullyElectionMain {
