@@ -5,6 +5,7 @@ import lombok.Getter;
 import java.io.*;
 import java.net.*;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 @Getter
@@ -15,11 +16,11 @@ public class CommunicationService implements NodeUpdater {
     byte[] receivedBuffer = new byte[2048];
     DatagramPacket receivePacket;
 
-    public CommunicationService(Member member) throws IOException, ClassNotFoundException {
+    public CommunicationService(Member member) throws IOException {
         self = member;
         try {
             InetAddress address = InetAddress.getByName(self.getHost());
-            datagramSocket = new DatagramSocket(member.getDiscoveryPort());
+            datagramSocket = new DatagramSocket(member.getDiscoveryPort(), address);
         } catch (SocketException e) {
             System.out.println("Could not create socket connection");
             e.printStackTrace();
@@ -53,8 +54,9 @@ public class CommunicationService implements NodeUpdater {
         }
     }
 
-    public void membershipAdditions(Member clusterMember) throws IOException, ClassNotFoundException {
-        //System.out.println("Registering to cluster");
+    public void membershipAdditions(Member clusterMember) {
+        System.out.println("Registering to cluster initial node ["
+                + clusterMember.getHost() + ":" + clusterMember.getDiscoveryPort() + "]");
         self.getPeers().putIfAbsent(self.getId(), self);
         if (clusterMember == null) {
             System.out.println("ready to receive members for " + self.getId());
@@ -63,12 +65,22 @@ public class CommunicationService implements NodeUpdater {
             self.getPeers().putIfAbsent(clusterMember.getId(), clusterMember);
         }
         this.receiver();
-        send();
+        nodeAdded(clusterMember);
     }
 
     @Override
-    public void nodeAdded(Member member) throws IOException {
-
+    public void nodeAdded(Member member) {
+        List<Member> members = new ArrayList(self.getPeers().values());
+        for (Member m : members) {
+            System.out.println("Sending message to ["
+                    + m.getHost() + ":" + m.getDiscoveryPort() + "]");
+            advertiseSelf(m);
+        }
+        for (int i = 0; i < members.size(); i++) {
+            for (int j = 0; j < members.size(); j++) {
+                advertisePeer(members.get(i), members.get(j));
+            }
+        }
     }
 
     @Override
@@ -92,16 +104,22 @@ public class CommunicationService implements NodeUpdater {
                     member = (Member) objectInputStream.readObject();
                     System.out.println("Received Member message from [" + member.getHost()
                             + ":" + member.getDiscoveryPort() + "]");
-                    self.getPeers().putIfAbsent(member.getId(), member);
+                    if (self.getPeers().get(member.getId()) == null) {
+                        self.getPeers().putIfAbsent(member.getId(), member);
+                        nodeAdded(member);
+                    }
+
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
                 } finally {
                     for (Member m : member.getPeers().values()) {
                         self.getPeers().putIfAbsent(m.getId(), m);
                     }
-                    for (Member m : self.getPeers().values()) {
-                        System.out.println("I have knowledge about peer [" + m.getHost()
-                                + ":" + m.getDiscoveryPort() + "]");
+                    if (self.getPeers() != null) {
+                        for (Member m : self.getPeers().values()) {
+                            System.out.println("I have knowledge about peer [" + m.getHost()
+                                    + ":" + m.getDiscoveryPort() + "]");
+                        }
                     }
                     objectInputStream.close();
                 }
@@ -111,45 +129,55 @@ public class CommunicationService implements NodeUpdater {
         }
     }
 
-    private void send(Member m) {
+    private void advertiseSelf(Member member) {
         try {
             InetSocketAddress inetSocketAddress =
-                    new InetSocketAddress(m.getHost(), m.getDiscoveryPort());
+                    new InetSocketAddress(member.getHost(), member.getDiscoveryPort());
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
             objectOutputStream.writeObject(self);
             objectOutputStream.flush();
             byte[] buffer = byteArrayOutputStream.toByteArray();
             DatagramPacket packet = new DatagramPacket
-                    (buffer, buffer.length, inetSocketAddress.getAddress(), m.getDiscoveryPort());
+                    (buffer, buffer.length, inetSocketAddress.getAddress(), member.getDiscoveryPort());
             try {
                 datagramSocket.send(packet);
                 System.out.println("Sent info to member "
-                        + m.getHost() + ":" + m.getDiscoveryPort()
+                        + member.getHost() + ":" + member.getDiscoveryPort()
                 );
             } catch (IOException e) {
                 System.out.println("Fatal error trying to send: "
-                        + packet + " to [" + m.getHost() + ":" + m.getPort() + "]");
+                        + packet + " to [" + member.getHost() + ":" + member.getPort() + "]");
                 e.printStackTrace();
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
-
     }
 
-    private void send() {
-        while (true) {
+    private void advertisePeer(Member to, Member about) {
+        try {
+            InetSocketAddress inetSocketAddress =
+                    new InetSocketAddress(to.getHost(), to.getDiscoveryPort());
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+            objectOutputStream.writeObject(about);
+            objectOutputStream.flush();
+            byte[] buffer = byteArrayOutputStream.toByteArray();
+            DatagramPacket packet = new DatagramPacket
+                    (buffer, buffer.length, inetSocketAddress.getAddress(), to.getDiscoveryPort());
             try {
-                Thread.sleep(10000);
-            } catch (InterruptedException e) {
+                datagramSocket.send(packet);
+                System.out.println("Sent info to member "
+                        + to.getHost() + ":" + to.getDiscoveryPort()
+                );
+            } catch (IOException e) {
+                System.out.println("Fatal error trying to send: "
+                        + packet + " to [" + to.getHost() + ":" + to.getPort() + "]");
                 e.printStackTrace();
             }
-            for (Member m : self.getPeers().values()) {
-                System.out.println("Sending message to ["
-                        + m.getHost() + ":" + m.getDiscoveryPort() + "]");
-                send(m);
-            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
