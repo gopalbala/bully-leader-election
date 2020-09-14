@@ -23,7 +23,7 @@ public class BullyElectionMain {
 //        startFirstNode(m1);
 //        joinToCluster(m1, m2);
 //        joinToCluster(m1, m3);
-        joinToCluster(m2, m4);
+//        joinToCluster(m2, m4);
     }
 
     private static Member initNode(String host,
@@ -35,7 +35,7 @@ public class BullyElectionMain {
         return member;
     }
 
-    private static void startFirstNode(Member member) throws IOException, ClassNotFoundException {
+    private static void startFirstNode(Member member) throws IOException {
         CommunicationService communicationService =
                 new CommunicationService(member);
 
@@ -45,10 +45,8 @@ public class BullyElectionMain {
             public void run() {
                 try {
                     communicationService.membershipAdditions(null);
-                } catch (IOException e) {
+                } catch (Exception e) {
                     // e.printStackTrace();
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
                 }
             }
         });
@@ -62,20 +60,15 @@ public class BullyElectionMain {
 
     }
 
-    private static Member joinToCluster(Member cluster, Member member) throws IOException, ClassNotFoundException {
+    private static Member joinToCluster(Member cluster, Member member) throws IOException {
         CommunicationService communicationService1 =
                 new CommunicationService(member);
 
-        Thread thread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    communicationService1.membershipAdditions(cluster);
-                } catch (IOException e) {
-                    // e.printStackTrace();
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
-                }
+        Thread thread = new Thread(() -> {
+            try {
+                communicationService1.membershipAdditions(cluster);
+            } catch (Exception e) {
+                // e.printStackTrace();
             }
         });
 
